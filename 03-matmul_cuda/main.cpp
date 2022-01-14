@@ -1,10 +1,13 @@
 #include <cstdio>
 #include "include/kernel.cuh"
 #include "include/MatrixUtils.h"
+#include <chrono>
 
-#define DEBUG
-#define COMPROBAR
-//#define IMPRIMIR
+
+#include "toggles.h"
+
+using clk = std::chrono::system_clock;
+using sec = std::chrono::duration<double>;
 
 
 void imprimir_matriz(const Matrix2D<float> *matrix);
@@ -19,6 +22,9 @@ int main(int argc, char *argv[]) {
     Matrix2D<float> C{};
     Matrix2D<float> R{};
 
+
+
+    float tiempoEjecucionCuda;
 
 
     //Dimensiones de las matrices
@@ -56,9 +62,18 @@ int main(int argc, char *argv[]) {
 
     //Comenzamos los calculos en la version serie
 
+
     printf("Calculando version serie...");
+
+#ifdef DEBUG
+    const auto before = clk::now();
+#endif
     MatrixUtils::multiplicar(&A, &B, &R_SERIE);
-    //MatrixUtils::sumar(&R_SERIE,&C,&R_SERIE);
+    MatrixUtils::sumar(&R_SERIE,&C,&R_SERIE);
+
+#ifdef DEBUG
+    const sec tiempo_serie = clk::now() - before;
+#endif
     printf("[OK]\n");
 
 #ifdef IMPRIMIR
@@ -80,7 +95,7 @@ int main(int argc, char *argv[]) {
     CUDA::matmuladd_calcular(A.elements, B.elements, C.elements, R.elements,
                              Dimensiones{A.height,A.width},
                              Dimensiones{B.height, B.width},
-                             Dimensiones{C.height,C.width});
+                             Dimensiones{C.height,C.width},&tiempoEjecucionCuda);
 
 
     printf("[OK]\n");
@@ -116,6 +131,13 @@ int main(int argc, char *argv[]) {
     free(C.elements);
     free(R.elements);
     free(R_SERIE.elements);
+
+
+#ifdef DEBUG
+
+    printf("Tiempo Ejecucion Serie : %1.3f ms\n",tiempo_serie.count() * 1000);
+    printf("Tiempo Ejecucion Cuda : %1.3f ms\n",tiempoEjecucionCuda);
+#endif
 
 
     return 0;

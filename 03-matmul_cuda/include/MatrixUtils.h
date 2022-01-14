@@ -245,7 +245,7 @@ void MatrixUtils::sumar(const Matrix2D<T> *A, const Matrix2D<T> *B, Matrix2D<T> 
             DST->elements[i * A->width + j] = A->elements[i * A->width + j] + B->elements[i * B->width + j];
 }
 
-bool MatrixUtils::son_casi_iguales(const Matrix2D<float> *A, const Matrix2D<float> *B, const float epsilon = 0.f)
+bool MatrixUtils::  son_casi_iguales(const Matrix2D<float> *A, const Matrix2D<float> *B, const float epsilon = .5f)
 {
 
     if (A->height != B->height || A->width != B->width) {

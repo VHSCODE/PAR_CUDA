@@ -4,6 +4,7 @@
 
 #include "../include/kernel.cuh"
 
+#include "../include/toggles.h"
 #define TAMAÑO_BLOQUE 16
 #include "../include/MatrixUtils.h"
 namespace CUDA {
@@ -29,14 +30,16 @@ namespace CUDA {
     }
 
     template<typename T>
-    __global__ void sumar_cuda(const T *A, const T *B, T *DST,Dimensiones dimA, Dimensiones dimB, Dimensiones dimDST)
+    __global__ void sumar_cuda(const T *A, const T *B, T *DST,long N)
     {
-        long x = blockIdx.x * blockDim.x + threadIdx.x;
-        DST[x] = A[x] + B[x];
+        long tid = (blockDim.x * blockIdx.x) + threadIdx.x;
+        if (tid < N) {
+            DST[tid] = A[tid] + B[tid];
+        }
     }
 
 
-    void matmuladd_calcular(const float *A, const float *B, const float *C, float *R, Dimensiones dimA, Dimensiones dimB, Dimensiones dimC)
+    void matmuladd_calcular(const float *A, const float *B, const float *C, float *R, Dimensiones dimA, Dimensiones dimB, Dimensiones dimC,float *tiempoEjecucion)
     {
 
         if (dimA.width != dimB.height) {
@@ -46,7 +49,7 @@ namespace CUDA {
         }
 
         //Matrices de la GPU
-        float *A_GPU, *B_GPU, *C_GPU, *R_GPU;
+        float *A_GPU, *B_GPU, *C_GPU, *MUL_GPU, * R_GPU;
 
 
         //Asignamos memoria a las matrices
@@ -64,8 +67,13 @@ namespace CUDA {
         }
 
         Dimensiones dimR{dimA.height, dimB.width};
+
+        if(cudaMalloc(&MUL_GPU, sizeof (float) * dimR.height * dimR.width) != cudaSuccess){
+            printf("[ERROR] No se ha podido reservar memoria la matriz MUL_GPU\n");
+            return;
+        }
         if(cudaMalloc(&R_GPU,sizeof (float) * dimR.height * dimR.width) != cudaSuccess){
-            printf("[ERROR] No se ha podido reservar memoria la matriz R_GPU\n");
+            printf("[ERROR] No se ha podido reservar memoria la matriz C_GPU\n");
             return;
         }
 
@@ -90,24 +98,48 @@ namespace CUDA {
         //Creamos las dimensiones del grid y de los bloques
         dim3 dimensionesBloque(TAMAÑO_BLOQUE, TAMAÑO_BLOQUE);
 
-        dim3 dimensionesGrid((dimB.width + TAMAÑO_BLOQUE - 1)/TAMAÑO_BLOQUE, (dimA.height+ TAMAÑO_BLOQUE-1)/TAMAÑO_BLOQUE);
+        dim3 dimensionesGrid((dimB.height + TAMAÑO_BLOQUE - 1)/TAMAÑO_BLOQUE, (dimA.width+ TAMAÑO_BLOQUE-1)/TAMAÑO_BLOQUE);
 
+        long N = dimC.width * dimC.height;
 
+#ifdef DEBUG
+        cudaEvent_t start,stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
+        cudaEventRecord(start);
+#endif
         // Y comenzamos a llamar a los kernels
-        multiplicar_cuda<<<dimensionesGrid,dimensionesBloque>>>(A_GPU, B_GPU, R_GPU,dimA,dimB,dimR);
+        multiplicar_cuda<<<dimensionesGrid,dimensionesBloque>>>(A_GPU, B_GPU, MUL_GPU,
+                                                                dimA, dimB, dimR);
 
-        //sumar_cuda<<<dimensionesGrid,dimensionesBloque>>>(R_GPU,C_GPU,R_GPU,dimA,dimC,dimR);
+
+        dim3 dimGrid((N + TAMAÑO_BLOQUE -1 ) / TAMAÑO_BLOQUE);
+        sumar_cuda<<<dimGrid, dimensionesBloque>>>(C_GPU,MUL_GPU, R_GPU,N );
 
 
+#ifdef DEBUG
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+#endif
+        //Esperamos que se terminen los procesos en la gpu
+        cudaDeviceSynchronize();
+#ifdef DEBUG
+
+
+        cudaEventElapsedTime(tiempoEjecucion,start,stop);
+#endif
+
+
+        auto err = cudaMemcpy(R, R_GPU, sizeof(float) * dimR.height * dimR.width, cudaMemcpyKind::cudaMemcpyDeviceToHost);
         //Escribimos el resultado en la matriz host
-        if (cudaMemcpy(R,R_GPU, sizeof(float) * dimR.height * dimR.width, cudaMemcpyKind::cudaMemcpyDeviceToHost) != cudaSuccess)
+        if ( err != cudaSuccess)
         {
-            printf("[ERROR] Error al copiar la matriz R de la GPU al host \n");
+
+            printf("[ERROR] Error al copiar la matriz R de la GPU al host : %s \n", cudaGetErrorName(err));
             return;
         }
 
-        //Esperamos que se terminen los procesos en la gpu
-        cudaDeviceSynchronize();
 
 
 
@@ -115,6 +147,7 @@ namespace CUDA {
         cudaFree(A_GPU);
         cudaFree(B_GPU);
         cudaFree(C_GPU);
+        cudaFree(MUL_GPU);
         cudaFree(R_GPU);
     }
 
